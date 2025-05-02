@@ -15,33 +15,178 @@ if os.geteuid() != 0:
     print("This script must be run as root. Restarting with sudo...")
     os.execvp("sudo", ["sudo"] + sys.argv)
 
-# Color codes
-RED = "\033[91m"
-GREEN = "\033[92m"
-YELLOW = "\033[93m"
-CYAN = "\033[96m"
-RESET = "\033[0m"
-
-# Interface configuration
-INTERFACE = "wlan1mon"
+# Global variables
 deauth_running = False
 scan_running = False
+INTERFACE = None
 
 # Scan duration settings
-DEFAULT_SINGLE_BAND_DURATION = 10  # Duration for 2.4GHz or 5GHz scans
-DEFAULT_DUAL_BAND_DURATION = 25    # Duration for dual band scans
+DEFAULT_SINGLE_BAND_DURATION = 10
+DEFAULT_DUAL_BAND_DURATION = 10
 scan_duration = DEFAULT_SINGLE_BAND_DURATION
 
-def check_monitor_mode():
-    """Ensure the interface is in monitor mode."""
-    try:
-        mode = subprocess.check_output(f"iwconfig {INTERFACE} | grep Mode", shell=True).decode()
-        if "Monitor" not in mode:
-            print(f"{RED}[!] {INTERFACE} is not in monitor mode!{RESET}")
-            sys.exit(1)
-    except:
-        print(f"{RED}[!] Could not verify monitor mode. Make sure {INTERFACE} exists.{RESET}")
+def select_interface():
+    """Create interface selection window with dropdown menu."""
+    def confirm_selection():
+        selected = interface_var.get()
+        if not selected:
+            messagebox.showerror("Error", "Please select an interface")
+            return
+            
+        try:
+            # Set monitor mode commands without killing NetworkManager
+            commands = [
+                f"ip link set {selected} down",
+                f"iw dev {selected} set monitor control",
+                f"ip link set {selected} up"
+            ]
+            
+            # Execute commands
+            for cmd in commands:
+                subprocess.run(cmd.split(), check=True)
+            
+            # Verify monitor mode
+            time.sleep(1)  # Wait for interface to stabilize
+            mode = subprocess.check_output(f"iwconfig {selected} | grep Mode", 
+                                        shell=True).decode()
+            
+            if "Monitor" in mode:
+                selection_window.selected_interface = selected
+                selection_window.destroy()
+            else:
+                raise Exception("Failed to enable monitor mode")
+                
+        except Exception as e:
+            messagebox.showerror("Error", 
+                f"Failed to set monitor mode: {str(e)}\n"
+                "Please ensure your wireless card supports monitor mode.")
+
+    # Create selection window with Kali theme
+    selection_window = tk.Tk()
+    selection_window.title("Select Interface")
+    selection_window.geometry("800x600")  # Increased window size
+    selection_window.configure(bg='#1a1a1a')
+    selection_window.selected_interface = None
+
+    # Center the window
+    selection_window.update_idletasks()
+    width = selection_window.winfo_width()
+    height = selection_window.winfo_height()
+    x = (selection_window.winfo_screenwidth() // 2) - (width // 2)
+    y = (selection_window.winfo_screenheight() // 2) - (height // 2)
+    selection_window.geometry(f'{width}x{height}+{x}+{y}')
+
+    # Get wireless interfaces and sort external ones first
+    interfaces = subprocess.check_output(
+        "iwconfig 2>/dev/null | grep 'IEEE' | awk '{print $1}'", 
+        shell=True).decode().strip().split('\n')
+
+    if not interfaces:
+        messagebox.showerror("Error", "No wireless interfaces detected!")
+        selection_window.destroy()
         sys.exit(1)
+
+    # Sort interfaces to put external ones first (typically wlan1, wlan2, etc.)
+    interfaces.sort(key=lambda x: (x == 'wlan0', x))  # This puts wlan0 last
+
+    # Create styled frame
+    main_frame = tk.Frame(selection_window, bg='#1a1a1a', padx=20, pady=20)
+    main_frame.pack(expand=True, fill='both')
+
+    # Title
+    tk.Label(main_frame, 
+            text="WiFi Deauther",
+            font=('Ubuntu', 18, 'bold'),  # Increased font size
+            bg='#1a1a1a',
+            fg='white').pack(pady=(0,20))
+
+    # Important notice frame
+    notice_frame = tk.Frame(main_frame, bg='#2b2b2b', padx=15, pady=15)
+    notice_frame.pack(fill='x', pady=(0,20))
+
+    notice_text = """IMPORTANT NOTICES:
+
+1. Legal Warning:
+   This tool is for educational and authorized testing purposes only.
+   Using it on networks without explicit permission is illegal.
+
+2. Hardware Requirement:
+   Your wireless adapter MUST support monitor mode operation.
+
+3. Dual-Band Notice:
+   • Full scanning support for both 2.4GHz and 5GHz bands
+   • Deauthentication capabilities vary by hardware
+   • Some cards may only support deauthentication on specific bands
+   • Test your hardware's capabilities before deployment"""
+
+    tk.Label(notice_frame,
+            text=notice_text,
+            justify='left',
+            bg='#2b2b2b',
+            fg='#00ff00',
+            font=('Ubuntu', 11)).pack()  # Increased font size
+
+    # Interface selection frame with dropdown
+    select_frame = tk.Frame(main_frame, bg='#1a1a1a')
+    select_frame.pack(fill='x', pady=20)  # Increased padding
+
+    tk.Label(select_frame,
+            text="Select Wireless Interface:",
+            font=('Ubuntu', 12),  # Increased font size
+            bg='#1a1a1a',
+            fg='white').pack(pady=(0,10))
+
+    # Styled combobox
+    style = ttk.Style()
+    style.theme_use('default')
+    style.configure('Custom.TCombobox', 
+                   background='#2b2b2b',
+                   foreground='black',
+                   fieldbackground='white')
+
+    interface_var = tk.StringVar()
+    interface_combo = ttk.Combobox(select_frame,
+                                 textvariable=interface_var,
+                                 values=interfaces,
+                                 state='readonly',
+                                 font=('Ubuntu', 11),
+                                 style='Custom.TCombobox')
+    interface_combo.pack(pady=10)
+    
+    # Set first interface as default
+    if interfaces:
+        interface_combo.set(interfaces[0])
+
+    # Confirm button
+    tk.Button(main_frame,
+              text="Enable Monitor Mode",
+              command=confirm_selection,
+              bg='#367bf0',
+              fg='white',
+              font=('Ubuntu', 12, 'bold'),
+              relief='flat',
+              padx=20,
+              pady=10).pack(pady=20)
+
+    selection_window.mainloop()
+    
+    if not selection_window.selected_interface:
+        sys.exit(0)
+        
+    return selection_window.selected_interface
+
+def cleanup_on_exit():
+    """Restore normal mode and NetworkManager on exit."""
+    if INTERFACE:
+        try:
+            # Restore normal mode
+            subprocess.run(f"ip link set {INTERFACE} down".split())
+            subprocess.run(f"iw dev {INTERFACE} set type managed".split())
+            subprocess.run(f"ip link set {INTERFACE} up".split())
+            
+            print(f"\nSuccessfully restored network settings")
+        except Exception as e:
+            print(f"\nError restoring network settings: {e}")
 
 def parse_csv_results(csv_prefix):
     """Parse the CSV results from airodump-ng."""
@@ -52,7 +197,7 @@ def parse_csv_results(csv_prefix):
         csv_files.sort(key=lambda x: os.path.getmtime(os.path.join("/tmp", x)), reverse=True)
         csv_file = os.path.join("/tmp", csv_files[0])
     except Exception as e:
-        print(f"{RED}[!] Error finding CSV file: {str(e)}{RESET}")
+        print(f"[!] Error finding CSV file: {str(e)}")
         return []
 
     networks = []
@@ -70,7 +215,7 @@ def parse_csv_results(csv_prefix):
                     'essid': row[13].strip(),
                 })
     except Exception as e:
-        print(f"{RED}[!] Error parsing CSV: {str(e)}{RESET}")
+        print(f"[!] Error parsing CSV: {str(e)}")
         return []
 
     networks.sort(key=lambda x: x['signal'], reverse=True)
@@ -129,7 +274,7 @@ def scan_single_band(channel_range, band_option, duration, networks):
                 continue
                 
     except Exception as e:
-        print(f"{RED}[!] Error during scanning: {e}{RESET}")
+        print(f"[!] Error during scanning: {e}")
 
 def update_status(status_label, message):
     """Update the status bar with the given message."""
@@ -186,7 +331,7 @@ def scan_networks_gui(band, tree, status_label, progress_bar):
         if scan_running:  # Only join if we didn't break out early
             airodump_thread.join()
     except Exception as e:
-        print(f"{RED}[!] Error during scanning: {e}{RESET}")
+        print(f"[!] Error during scanning: {e}")
     finally:
         progress_bar.pack_forget()
         scan_running = False
@@ -238,7 +383,7 @@ def deauth_all(bssid, channel, status_label, ssid):
             sendp(packet, iface=INTERFACE, count=100, inter=0.1, verbose=0)
             time.sleep(0.5)
     except Exception as e:
-        print(f"{RED}[!] Error during deauth: {e}{RESET}")
+        print(f"[!] Error during deauth: {e}")
     finally:
         # Only update to Idle if this was the last deauth running
         if not any(thread.name.startswith('deauth_') for thread in threading.enumerate()):
@@ -276,9 +421,17 @@ def create_gui():
     root = tk.Tk()
     root.title("WiFi Deauther")
     root.geometry("800x600")
-    
-    # Kali-like dark theme
     root.configure(bg='#1a1a1a')
+    
+    # Center the main window
+    root.update_idletasks()
+    width = root.winfo_width()
+    height = root.winfo_height()
+    x = (root.winfo_screenwidth() // 2) - (width // 2)
+    y = (root.winfo_screenheight() // 2) - (height // 2)
+    root.geometry(f'{width}x{height}+{x}+{y}')
+
+    # Kali-like dark theme
     style = ttk.Style()
     style.theme_use('default')
     
@@ -305,12 +458,20 @@ def create_gui():
     control_frame = tk.Frame(root, bg='#1a1a1a')
     control_frame.pack(pady=10)
 
+    # Add interface indicator
+    interface_label = tk.Label(control_frame,
+                             text=f"Interface: {INTERFACE}",
+                             bg='#1a1a1a',
+                             fg='#00ff00',
+                             font=('Ubuntu', 10, 'bold'))
+    interface_label.pack(side="left", padx=10)
+
     # Updated buttons with Kali theme
     button_configs = [
         ("Scan 2.4GHz", lambda: scan_networks_gui("2.4", tree, status_label, progress_bar)),
         ("Scan 5GHz", lambda: scan_networks_gui("5", tree, status_label, progress_bar)),
         ("Scan Both", lambda: scan_networks_gui("dual", tree, status_label, progress_bar)),
-        ("Set Duration", set_scan_duration),
+        ("Set Scan Duration", set_scan_duration),  # Changed button text
         ("Stop Deauth", lambda: stop_deauth(status_label)),
         ("Exit", lambda: os._exit(0))
     ]
@@ -414,7 +575,10 @@ def create_gui():
 
 if __name__ == "__main__":
     try:
-        check_monitor_mode()
+        INTERFACE = select_interface()
         create_gui()
     except KeyboardInterrupt:
+        print(f"\nExiting...")
+    finally:
+        cleanup_on_exit()
         sys.exit(0)
