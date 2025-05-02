@@ -47,14 +47,25 @@ This tool is for **educational and authorized testing purposes only**. Usage on 
 - 🔍 Testing recommended before deployment
 
 ## 🚀 Usage
-1. Clone the repository
-2. Run with sudo privileges:
+1. Clone the repository:
+```bash
+git clone https://github.com/Maksio2019/wifi-deauther-gui.git
+cd wifi-deauther-gui
+chmod +x wifi_deauther.py
+```
+2. Install requierments:
+```bash
+sudo apt update
+sudo apt install python3-pip aircrack-ng
+sudo pip3 install scapy
+```
+3. Run with sudo privileges:
 ```bash
 sudo python3 wifi_deauther.py
 ```
-3. 🎯 Select your wireless interface
-4. 🔄 Interface will automatically be set to monitor mode
-5. 🖱️ Use the GUI to scan and manage networks
+4. 🎯 Select your wireless interface
+5. 🔄 Interface will automatically be set to monitor mode
+6. 🖱️ Use the GUI to scan and manage networks
 
 ## ⚠️ Disclaimer
 This tool is provided for educational purposes only. Users are responsible for ensuring compliance with local laws and regulations regarding network security testing.
